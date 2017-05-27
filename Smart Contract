@@ -1,0 +1,111 @@
+pragma solidity ^0.4.0;
+
+contract Escrow {
+    uint highestBid;
+    uint endPurchaseTime;
+    address seller;
+    address buyer;
+    bool received = false;
+    
+    event goodReceived (bool received);
+    
+    modifier checkSender (address _neededSender) {
+        require (msg.sender == _neededSender);
+        _;
+    }
+    
+    function Escrow (uint _highestBid, address _seller, 
+            address _buyer) {
+        highestBid = _highestBid;
+        seller = _seller;
+        buyer = _buyer;
+        endPurchaseTime = now + 1 weeks;
+        
+    }
+    
+    function confirmReceipt () checkSender (buyer) {
+        received = true;
+        goodReceived(received);
+    }
+    
+    function completeSale () {
+        if (received == true) {
+            buyer.transfer(highestBid / 2);
+            seller.transfer(this.balance);
+        } else if (now >= endPurchaseTime) {
+            // if the good is not received, then all money is reverted to 
+            // original owner
+            buyer.transfer(highestBid); 
+        }
+    } 
+}
+
+// I have everyone bid twice their actuall bid price, that way, if your bid is 
+// the highest, you have already put down a deposit. The buyer will receive his
+// deposit (deposit = price) back when receives the good. This will prevent him
+// from receiving the good and claiming that he did not. 
+
+contract Auction {
+    
+    uint [] NumberOfAuctions = [0];
+    mapping(uint => uint) highestBid;
+    mapping (uint => address) highestBidder;
+    mapping (uint => address) seller;
+    mapping (uint => uint) minimumBid;
+    mapping (uint => uint) endAuctionTime;
+    mapping (uint => bool) auctionEnded;
+    mapping (uint => mapping (address => uint)) refundableBids;
+    
+    // events
+    event newBid (uint highestBid);
+    
+    // modifier 
+    modifier isOver (uint AuctionID) {
+        require(now < endAuctionTime[AuctionID]);
+        _;
+    }
+    
+    event HighestBidIncreased(address bidder, uint amount);
+    
+    function Auction ();
+    
+    function createNewAuction (uint _auctionTime, uint _minimumBid ) returns (uint) {
+        uint AuctionID = NumberOfAuctions.length;
+        NumberOfAuctions.push(1);
+        endAuctionTime[AuctionID] = now + _auctionTime;
+        minimumBid[AuctionID] = _minimumBid;
+        auctionEnded[AuctionID] = false; 
+        seller[AuctionID] = msg.sender;
+        return AuctionID;
+    }
+    
+    function bid (uint _amount, uint AuctionID) payable isOver (AuctionID) {
+        require (_amount > highestBid[AuctionID] && _amount > minimumBid[AuctionID]);
+        HighestBidIncreased(msg.sender, _amount);
+        refundableBids[AuctionID][highestBidder[AuctionID]] += highestBid[AuctionID];
+        highestBid[AuctionID] = _amount;
+        highestBidder[AuctionID] = msg.sender;
+    }
+    
+    function withdrawRefundableBid (uint AuctionID) {
+        require (seller[AuctionID] != msg.sender);
+        uint refund = refundableBids[AuctionID][msg.sender];
+        require (refund > 0);
+        refundableBids[AuctionID][msg.sender] = 0;
+        msg.sender.transfer(refund);
+        
+    }
+    
+    function endAuction (uint AuctionID) {
+        require (auctionEnded[AuctionID] == false);
+        require (now > endAuctionTime[AuctionID]);
+        auctionEnded[AuctionID] = true; 
+        if (highestBid >= minimumBid) {
+            
+            // a valid purchase
+            Escrow myPurchase = new Escrow (highestBid[AuctionID], 
+                seller[AuctionID], highestBidder[AuctionID]);
+            myPurchase.transfer(highestBid[AuctionID]);
+        }
+    }
+}
