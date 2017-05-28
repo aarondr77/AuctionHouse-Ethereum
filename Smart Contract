@@ -7,7 +7,7 @@ contract Escrow {
     address buyer;
     bool received = false;
     
-    event goodReceived (bool received);
+    event GoodReceived (bool received);
     
     modifier checkSender (address _neededSender) {
         require (msg.sender == _neededSender);
@@ -15,7 +15,7 @@ contract Escrow {
     }
     
     function Escrow (uint _highestBid, address _seller, 
-            address _buyer) {
+            address _buyer) payable {
         highestBid = _highestBid;
         seller = _seller;
         buyer = _buyer;
@@ -25,7 +25,7 @@ contract Escrow {
     
     function confirmReceipt () checkSender (buyer) {
         received = true;
-        goodReceived(received);
+        GoodReceived(received);
     }
     
     function completeSale () {
@@ -47,21 +47,20 @@ contract Escrow {
 
 contract Auction {
     
-    uint [] NumberOfAuctions = [0];
+    uint numberOfAuctions = 1;
     mapping(uint => uint) highestBid;
     mapping (uint => address) highestBidder;
     mapping (uint => address) seller;
     mapping (uint => uint) minimumBid;
     mapping (uint => uint) endAuctionTime;
     mapping (uint => bool) auctionEnded;
-    mapping (uint => mapping (address => uint)) refundableBids;
+    mapping (address => uint) refundableBids;
     
-    // events
     event newBid (uint highestBid);
     
     // modifier 
     modifier isOver (uint AuctionID) {
-        require(now < endAuctionTime[AuctionID]);
+        require(now > endAuctionTime[AuctionID]);
         _;
     }
     
@@ -70,8 +69,8 @@ contract Auction {
     function Auction ();
     
     function createNewAuction (uint _auctionTime, uint _minimumBid ) returns (uint) {
-        uint AuctionID = NumberOfAuctions.length;
-        NumberOfAuctions.push(1);
+        uint AuctionID = numberOfAuctions;
+        numberOfAuctions = numberOfAuctions + 1;
         endAuctionTime[AuctionID] = now + _auctionTime;
         minimumBid[AuctionID] = _minimumBid;
         auctionEnded[AuctionID] = false; 
@@ -79,28 +78,27 @@ contract Auction {
         return AuctionID;
     }
     
-    function bid (uint _amount, uint AuctionID) payable isOver (AuctionID) {
-        require (_amount > highestBid[AuctionID] && _amount > minimumBid[AuctionID]);
-        HighestBidIncreased(msg.sender, _amount);
-        refundableBids[AuctionID][highestBidder[AuctionID]] += highestBid[AuctionID];
-        highestBid[AuctionID] = _amount;
+    function bid (uint AuctionID) payable isOver (AuctionID) {
+        require (msg.value > highestBid[AuctionID] && msg.value > 2 * minimumBid[AuctionID]);
+        HighestBidIncreased(msg.sender, msg.value);
+        refundableBids[highestBidder[AuctionID]] += highestBid[AuctionID];
+        highestBid[AuctionID] = msg.value;
         highestBidder[AuctionID] = msg.sender;
     }
     
     function withdrawRefundableBid (uint AuctionID) {
         require (seller[AuctionID] != msg.sender);
-        uint refund = refundableBids[AuctionID][msg.sender];
+        uint refund = refundableBids[msg.sender];
         require (refund > 0);
-        refundableBids[AuctionID][msg.sender] = 0;
+        refundableBids[msg.sender] = 0;
         msg.sender.transfer(refund);
         
     }
     
-    function endAuction (uint AuctionID) {
+    function endAuction (uint AuctionID) isOver(AuctionID) {
         require (auctionEnded[AuctionID] == false);
-        require (now > endAuctionTime[AuctionID]);
         auctionEnded[AuctionID] = true; 
-        if (highestBid >= minimumBid) {
+        if (highestBid[AuctionID] >= 2 * minimumBid[AuctionID]) {
             
             // a valid purchase
             Escrow myPurchase = new Escrow (highestBid[AuctionID], 
