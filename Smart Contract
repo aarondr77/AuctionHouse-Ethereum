@@ -42,52 +42,58 @@ contract Escrow {
 
 // I have everyone bid twice their actuall bid price, that way, if your bid is 
 // the highest, you have already put down a deposit. The buyer will receive his
-// deposit (deposit = price) back when receives the good. This will prevent him
+// deposit (deposit = price) back when he receives the good. This will prevent him
 // from receiving the good and claiming that he did not. 
 
 contract Auction {
     
     uint numberOfAuctions = 1;
-    mapping(uint => uint) highestBid;
-    mapping (uint => address) highestBidder;
-    mapping (uint => address) seller;
-    mapping (uint => uint) minimumBid;
-    mapping (uint => uint) endAuctionTime;
-    mapping (uint => bool) auctionEnded;
+    mapping (uint => individualAuction) auctions;
+    struct individualAuction {
+        uint highestBid;
+        address highestBidder;
+        address seller;
+        uint minimumBid;
+        uint endAuctionTime;
+        bool auctionEnded;
+    }
     mapping (address => uint) refundableBids;
     
     event newBid (uint highestBid);
+    event HighestBidIncreased(address bidder, uint amount);
     
     // modifier 
     modifier isOver (uint AuctionID) {
-        require(now > endAuctionTime[AuctionID]);
+        require(now > auctions[AuctionID].endAuctionTime);
         _;
     }
-    
-    event HighestBidIncreased(address bidder, uint amount);
     
     function Auction ();
     
     function createNewAuction (uint _auctionTime, uint _minimumBid ) returns (uint) {
         uint AuctionID = numberOfAuctions;
         numberOfAuctions = numberOfAuctions + 1;
-        endAuctionTime[AuctionID] = now + _auctionTime;
-        minimumBid[AuctionID] = _minimumBid;
-        auctionEnded[AuctionID] = false; 
-        seller[AuctionID] = msg.sender;
+        auctions[AuctionID]  = individualAuction ({
+            endAuctionTime: now + _auctionTime,
+            minimumBid: _minimumBid,
+            auctionEnded: false,
+            seller: msg.sender,
+            highestBid: 0,
+            highestBidder: msg.sender
+            });
         return AuctionID;
     }
     
     function bid (uint AuctionID) payable isOver (AuctionID) {
-        require (msg.value > highestBid[AuctionID] && msg.value > 2 * minimumBid[AuctionID]);
+        require (msg.value > auctions[AuctionID].highestBid && msg.value > 2 * auctions[AuctionID].minimumBid);
         HighestBidIncreased(msg.sender, msg.value);
-        refundableBids[highestBidder[AuctionID]] += highestBid[AuctionID];
-        highestBid[AuctionID] = msg.value;
-        highestBidder[AuctionID] = msg.sender;
+        refundableBids[auctions[AuctionID].highestBidder] += auctions[AuctionID].highestBid;
+        auctions[AuctionID].highestBid = msg.value;
+        auctions[AuctionID].highestBidder = msg.sender;
     }
     
     function withdrawRefundableBid (uint AuctionID) {
-        require (seller[AuctionID] != msg.sender);
+        require (auctions[AuctionID].seller != msg.sender);
         uint refund = refundableBids[msg.sender];
         require (refund > 0);
         refundableBids[msg.sender] = 0;
@@ -96,14 +102,13 @@ contract Auction {
     }
     
     function endAuction (uint AuctionID) isOver(AuctionID) {
-        require (auctionEnded[AuctionID] == false);
-        auctionEnded[AuctionID] = true; 
-        if (highestBid[AuctionID] >= 2 * minimumBid[AuctionID]) {
-            
+        require (auctions[AuctionID].auctionEnded == false);
+        auctions[AuctionID].auctionEnded = true; 
+        if (auctions[AuctionID].highestBid >= 2 * auctions[AuctionID].minimumBid) {
             // a valid purchase
-            Escrow myPurchase = new Escrow (highestBid[AuctionID], 
-                seller[AuctionID], highestBidder[AuctionID]);
-            myPurchase.transfer(highestBid[AuctionID]);
+            Escrow myPurchase = new Escrow (auctions[AuctionID].highestBid, 
+                auctions[AuctionID].seller, auctions[AuctionID].highestBidder);
+            myPurchase.transfer(auctions[AuctionID].highestBid);
         }
     }
 }
